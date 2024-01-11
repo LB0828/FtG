@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 from torch.nn.utils.rnn import pad_sequence
+import argparse
 
 
 def get_num(dataset_path, dataset, mode='entity'):  # mode: {entity, relation}
@@ -146,3 +147,43 @@ def get_performance(model, tail_ranks, head_ranks):
         if hit in list(perf.columns):
             perf[hit] = perf[hit].apply(lambda x: '%.2f%%' % (x * 100))
     return perf
+
+
+def get_configs():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-dataset_path', type=str, default='/data/liuben/Prefix_T5/data/processed')
+    parser.add_argument('-dataset', dest='dataset', default='WN18RR', help='Dataset to use, default: WN18RR')
+    parser.add_argument('-model', default='T5Finetuner', help='Model Name')
+    parser.add_argument('-gpu', type=str, default='0', help='Set GPU Ids : Eg: For CPU = -1, For Single GPU = 0')
+    parser.add_argument('-seed', dest='seed', default=42, type=int, help='Seed for randomization')
+    parser.add_argument('-num_workers', type=int, default=64, help='Number of processes to construct batches')
+    parser.add_argument('-save_dir', type=str, default='', help='')
+
+    parser.add_argument('-pretrained_model', type=str, default='/data/liuben/llama2-7b', help='')
+    parser.add_argument('-batch_size', default=64, type=int, help='Batch size')
+    parser.add_argument('-val_batch_size', default=8, type=int, help='Batch size')
+    parser.add_argument('-num_beams', default=40, type=int, help='Number of samples from beam search')
+    parser.add_argument('-num_beam_groups', default=1, type=int, help='')
+    parser.add_argument('-src_max_length', default=512, type=int, help='')
+    parser.add_argument('-train_tgt_max_length', default=512, type=int, help='')
+    parser.add_argument('-eval_tgt_max_length', default=30, type=int, help='')
+    parser.add_argument('-epoch', dest='epochs', type=int, default=500, help='Number of epochs')
+    parser.add_argument('-lr', type=float, default=0.001, help='Starting Learning Rate')
+    parser.add_argument('-diversity_penalty', default=0., type=float, help='')
+
+    parser.add_argument('-model_path', dest='model_path', default='', help='The path for reloading models')
+    parser.add_argument('-optim', default='Adam', type=str, help='')
+    parser.add_argument('-decoder', type=str, default='beam_search', help='[beam_search, do_sample, beam_sample_search, diverse_beam_search]')
+    parser.add_argument('-log_text', action='store_true', help='')
+    parser.add_argument('-use_prefix_search', action='store_true', help='')
+    parser.add_argument('-src_descrip_max_length', default=0, type=int, help='')
+    parser.add_argument('-tgt_descrip_max_length', default=0, type=int, help='')
+    parser.add_argument('-use_soft_prompt', action='store_true', help='')
+    parser.add_argument('-use_rel_prompt_emb', action='store_true', help='')
+    parser.add_argument('-skip_n_val_epoch', default=0, type=int, help='')
+    parser.add_argument('-seq_dropout', default=0., type=float, help='')
+    parser.add_argument('-temporal', action='store_true', help='')
+    parser.add_argument('-max_words', default=256, type=int, help='')
+
+    configs = parser.parse_args()
+    return configs

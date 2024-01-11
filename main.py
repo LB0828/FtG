@@ -4,12 +4,13 @@ import argparse
 from datetime import datetime
 import warnings
 import torch
-from helper import get_num, read, read_name, read_file, get_ground_truth
+from helper import get_num, read, read_name, read_file, get_ground_truth, get_configs
 from transformers import LlamaConfig, LlamaTokenizer, LlamaForCausalLM, TrainingArguments, Trainer
 import random
 import numpy as np
-from data import InstructionDataset
-from peft import LoraConfig, get_peft_model
+from data import InstructionDataset, InstructionEvalDataset
+from tqdm import tqdm
+from peft import LoraConfig, get_peft_model, PeftModel
 
 
 def make_supervised_data_module(configs, tokenizer, train_triples, valid_triples, name_list_dict):
@@ -75,84 +76,76 @@ def main():
 
     # Step 3: Loading the LlaMA model
     print('Training dataloaders constructed. Loading the LlaMA model...' + '=' * 50)
-    model = LlamaForCausalLM.from_pretrained(configs.pretrained_model, torch_dtype=torch.float16, use_cache=False, device_map='auto')
-    lora_config = LoraConfig(
-        r=8,
-        lora_alpha=16,
-        target_modules=["q_proj", "v_proj"],
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
-    model = get_peft_model(model, lora_config)
-    model.print_trainable_parameters()
+    if configs.model_path != '':
+        model = LlamaForCausalLM.from_pretrained(configs.pretrained_model, torch_dtype=torch.float16).to("cuda:0")
+        model = PeftModel.from_pretrained(model, configs.model_path, torch_dtype=torch.float16).to("cuda:0")
+        model = model.eval()
+    else:
+        model = LlamaForCausalLM.from_pretrained(configs.pretrained_model, torch_dtype=torch.float16, use_cache=False, device_map='auto')
+        lora_config = LoraConfig(
+            r=8,
+            lora_alpha=16,
+            target_modules=["q_proj", "v_proj"],
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        model = get_peft_model(model, lora_config)
+        model.print_trainable_parameters()
 
-    # Step 4: Training
-    print('LlaMA model loaded. Start training...' + '=' * 50)
-    training_args = TrainingArguments(
-        per_device_train_batch_size=4,
-        gradient_accumulation_steps=1,
-        warmup_steps=100,
-        warmup_ratio=1e-3,
-        num_train_epochs=30,
-        learning_rate=1e-4,
-        fp16=True,
-        logging_steps=50,
-        optim="adamw_torch",
-        save_total_limit=2,
-        output_dir=configs.save_dir,
-        evaluation_strategy="epoch",
-        save_strategy="steps",
-        save_steps=1000,
-        weight_decay=0.01,
-        lr_scheduler_type="cosine",
-    )
-    trainer = Trainer(
-        model=model, tokenizer=tokenizer, args=training_args, **datamodule
-    )
-    model.config.use_cache = False
-    trainer.train()
-    model.save_pretrained(configs.save_dir)
+    # Step 4: Training&Inference
+    if configs.model_path != '':
+        answer = []
+        predict = []
+        print('LlaMA model loaded. Start inference...' + '=' * 50)
+        with tqdm(total=len(valid_triples), desc="Inference Progress") as pbar:
+            for sample in InstructionEvalDataset(configs, tokenizer, valid_triples, name_list_dict):
+                input_ids = sample['input_ids'].unsqueeze_(0).to("cuda:0")
+                label = sample['label']
+                generate_ids = model.generate(input_ids=input_ids, max_new_tokens=20)
+                result = tokenizer.batch_decode(generate_ids, skip_special_tokens=True)
+                final_result = result[0].split('\n')[-1]
+                answer.append(label)
+                predict.append(final_result)
+                pbar.update(1)
+        acc = 0
+        for idx in range(len(answer)):
+            with open(os.path.join(configs.save_dir, 'answer.txt'), 'a') as f:
+                f.write(predict[idx] + '\t' + answer[idx] + '\n')
+            if answer[idx] in predict[idx] or predict[idx] in answer[idx]:
+                acc += 1
+        print('acc: ', acc / len(answer))
+    else:
+        print('LlaMA model loaded. Start training...' + '=' * 50)
+        training_args = TrainingArguments(
+            per_device_train_batch_size=4,
+            gradient_accumulation_steps=1,
+            warmup_steps=200,
+            warmup_ratio=1e-3,
+            num_train_epochs=12,
+            learning_rate=1e-4,
+            fp16=True,
+            logging_steps=50,
+            optim="adamw_torch",
+            save_total_limit=2,
+            load_best_model_at_end=True,
+            output_dir=configs.save_dir,
+            evaluation_strategy="epoch",
+            save_strategy="steps",
+            save_steps=2000,
+            weight_decay=0.01,
+            lr_scheduler_type="cosine",
+        )
+        trainer = Trainer(
+            model=model, tokenizer=tokenizer, args=training_args, **datamodule
+        )
+        model.config.use_cache = False
+        trainer.train()
+        model.save_pretrained(configs.save_dir)
 
 if __name__ == '__main__':
     warnings.filterwarnings('ignore', category=DeprecationWarning)
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('-dataset_path', type=str, default='/data/liuben/Prefix_T5/data/processed')
-    parser.add_argument('-dataset', dest='dataset', default='WN18RR', help='Dataset to use, default: WN18RR')
-    parser.add_argument('-model', default='T5Finetuner', help='Model Name')
-    parser.add_argument('-gpu', type=str, default='0', help='Set GPU Ids : Eg: For CPU = -1, For Single GPU = 0')
-    parser.add_argument('-seed', dest='seed', default=42, type=int, help='Seed for randomization')
-    parser.add_argument('-num_workers', type=int, default=64, help='Number of processes to construct batches')
-    parser.add_argument('-save_dir', type=str, default='', help='')
-
-    parser.add_argument('-pretrained_model', type=str, default='/data/liuben/llama2-7b', help='')
-    parser.add_argument('-batch_size', default=64, type=int, help='Batch size')
-    parser.add_argument('-val_batch_size', default=8, type=int, help='Batch size')
-    parser.add_argument('-num_beams', default=40, type=int, help='Number of samples from beam search')
-    parser.add_argument('-num_beam_groups', default=1, type=int, help='')
-    parser.add_argument('-src_max_length', default=512, type=int, help='')
-    parser.add_argument('-train_tgt_max_length', default=512, type=int, help='')
-    parser.add_argument('-eval_tgt_max_length', default=30, type=int, help='')
-    parser.add_argument('-epoch', dest='epochs', type=int, default=500, help='Number of epochs')
-    parser.add_argument('-lr', type=float, default=0.001, help='Starting Learning Rate')
-    parser.add_argument('-diversity_penalty', default=0., type=float, help='')
-
-    parser.add_argument('-model_path', dest='model_path', default='', help='The path for reloading models')
-    parser.add_argument('-optim', default='Adam', type=str, help='')
-    parser.add_argument('-decoder', type=str, default='beam_search', help='[beam_search, do_sample, beam_sample_search, diverse_beam_search]')
-    parser.add_argument('-log_text', action='store_true', help='')
-    parser.add_argument('-use_prefix_search', action='store_true', help='')
-    parser.add_argument('-src_descrip_max_length', default=0, type=int, help='')
-    parser.add_argument('-tgt_descrip_max_length', default=0, type=int, help='')
-    parser.add_argument('-use_soft_prompt', action='store_true', help='')
-    parser.add_argument('-use_rel_prompt_emb', action='store_true', help='')
-    parser.add_argument('-skip_n_val_epoch', default=0, type=int, help='')
-    parser.add_argument('-seq_dropout', default=0., type=float, help='')
-    parser.add_argument('-temporal', action='store_true', help='')
-    parser.add_argument('-max_words', default=256, type=int, help='')
-
-    configs = parser.parse_args()
+    configs = get_configs()
     n_ent = get_num(configs.dataset_path, configs.dataset, 'entity')
     n_rel = get_num(configs.dataset_path, configs.dataset, 'relation')
     configs.n_ent = n_ent

@@ -4,7 +4,8 @@ import copy
 
 
 PROMPT_DICT = {
-    "prompt_no_input": "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\n{instruction}\n\n### Response:\n",
+    "prompt_no_input": "Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n",
+    "instruction": "The head entity is {entity_name}, and the corresponding description is {entity_description}. Based on the description of the head entity, predict a plausible tail entity that fits the given sentence."
 }
 
 class InstructionDataset(Dataset):
@@ -67,3 +68,53 @@ class InstructionDataset(Dataset):
             "labels": labels,
             "attention_mask": example_mask,
         }
+    
+
+class InstructionEvalDataset(Dataset):
+    def __init__(self, configs, tokenizer, triples, name_list_dict):
+        self.configs = configs
+        self.tokenizer = tokenizer
+        self.triples = triples
+        self.original_ent_name_list = name_list_dict['original_ent_name_list']
+        self.ent_name_list = name_list_dict['ent_name_list']
+        self.rel_name_list = name_list_dict['rel_name_list']
+        self.src_description_list = name_list_dict['src_description_list']
+        self.ent_name_tokenized_list = name_list_dict['ent_name_tokenized_list']
+        self.ent_name_tokenized_list_with_descrip = name_list_dict['ent_name_tokenized_list_with_descrip']
+        self.max_length = self.configs.max_words
+
+    def __len__(self):
+        return len(self.triples)
+    
+    def __getitem__(self, index):
+        triple = self.triples[index]
+        head, tail, rel = triple
+        head_name, tail_name, rel_name = self.original_ent_name_list[head], self.original_ent_name_list[tail], self.rel_name_list[rel]
+        if self.configs.src_descrip_max_length > 0:
+            head_descrip = '[' + self.src_description_list[head] + ']'
+            tail_descrip = '[' + self.src_description_list[tail] + ']'
+        else:
+            head_descrip, tail_descrip = '', ''
+        # Constrcut the input sequence and corresponding labels
+        src = head_name + ' ' + head_descrip + ' | ' + rel_name + ' | '
+        tgt = tail_name + ' ' + tail_descrip
+        src_tokenized = self.tokenizer(src, max_length=self.max_length, truncation=True)
+        tgt_tokenized = self.tokenizer(tgt, max_length=self.max_length, truncation=True)
+        prompt = PROMPT_DICT["prompt_no_input"].format(instruction=src)
+        prompt = self.tokenizer.encode(prompt)
+        prompt = torch.tensor(prompt, dtype=torch.int64)
+        attention_mask = torch.ones_like(prompt)
+        # padding = self.max_length - prompt.shape[0]
+        # if padding > 0: 
+        #     prompt = torch.cat(
+        #         (torch.zeros(padding, ))
+        #     )
+        # TODO: for batch inference and padding
+        return {
+            "input_ids": prompt,
+            "attention_mask": attention_mask,
+            "label": tail_name
+        }
+
+        
+
