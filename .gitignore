@@ -123,3 +123,4 @@ script/
 *.sh
 checkpoint_lora/
 *.pth
+data_processed/
