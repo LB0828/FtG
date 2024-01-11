@@ -30,8 +30,8 @@ def preprocess_data(configs):
         'src_description_list': src_description_list,
     }
     train_json = []
-    with tqdm(total=len(train_triples), desc='Constructing the training dataset...') as pbar:
-        for idx, triple in enumerate(train_triples):
+    with tqdm(total=len(valid_triples), desc='Constructing the training dataset...') as pbar:
+        for idx, triple in enumerate(valid_triples):
             head, tail, rel = triple
             head_name, tail_name, rel_name = ent_name_list[head], ent_name_list[tail], rel_name_list[rel]
             head_descrip, tail_descrip = src_description_list[head], src_description_list[tail]
@@ -47,7 +47,7 @@ def preprocess_data(configs):
             train_json.append(data_idx)
             pbar.update(1)
     train_tail_dataset = json.dumps(train_json)
-    with open(os.path.join('./data_processed/WN18RR/train_tail_dataset.json'), 'w') as f:
+    with open(os.path.join('./data_processed/WN18RR/valid_tail_dataset.json'), 'w') as f:
         f.write(train_tail_dataset)
 
 

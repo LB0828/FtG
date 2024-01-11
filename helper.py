@@ -10,6 +10,8 @@ import torch.nn as nn
 import torch.nn.init as init
 from torch.nn.utils.rnn import pad_sequence
 import argparse
+from typing import Union
+import json
 
 
 def get_num(dataset_path, dataset, mode='entity'):  # mode: {entity, relation}
@@ -187,3 +189,43 @@ def get_configs():
 
     configs = parser.parse_args()
     return configs
+
+
+class Prompter(object):
+    __slots__ = ("template", "_verbose")
+
+    def __init__(self, template_name: str = "", verobse: bool = False):
+        self._verbose = verobse
+        if not template_name:
+            template_name = 'alpaca'
+        print(f'template_name: {template_name}.json')
+        file_name = os.path.join("./templates", f"{template_name}.json")
+        if not os.path.exists(file_name):
+            raise ValueError(f"Template file {file_name} not found.")
+        with open(file_name, "r") as file:
+            self.template = json.load(file)
+        if self._verbose:
+            print(f"Using prompt template {template_name}: {self.template['description']}")
+    
+    def generate_prompt(
+        self,
+        instruction,
+        input,
+        label
+    ):
+        if input:
+            res = self.template['prompt_input'].format(
+                instruction=instruction, input=input
+            )
+        else:
+            res = self.template['prompt_no_input'].format(
+                instruction=instruction
+            )
+        if label:
+            res = f'{res}{label}'
+        if self._verbose:
+            print(res)
+        return res
+    
+    def get_response(self, output):
+        return output.split(self.template['response_split'])[1].strip()
