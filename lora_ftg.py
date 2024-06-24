@@ -133,11 +133,11 @@ class DataArguments:
         metadata={"help": "Whether to group sample"}
     )
     train_graph_emb_path: Optional[str] = field(
-        default="/jupyter/copilot_lb/FtG/data/processed/codex-m/train_graph_emb.pt",
+        default="./FtG/data/processed/codex-m/train_graph_emb.pt",
         metadata={"help": "Path to train graph emb"}
     )
     test_graph_emb_path: Optional[str] = field(
-        default="/jupyter/copilot_lb/FtG/data/processed/codex-m/test_graph_emb.pt",
+        default="./FtG/data/processed/codex-m/test_graph_emb.pt",
         metadata={"help": "Path to test graph emb"}
     )
 

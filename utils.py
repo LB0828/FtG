@@ -123,7 +123,6 @@ def convert_file_to_conv_with_context(dataset_path, dataset, filename):
         context_list = pickle.load(open(os.path.join(dataset_path, dataset, 'train_context_list.pkl'), 'rb'))
     else:
         context_list = pickle.load(open(os.path.join(dataset_path, dataset, 'test_context_list.pkl'), 'rb'))
-    # tokenizer = LlamaTokenizer.from_pretrained('/data/liuben/llama2-7b')
     for idx, instructions in tqdm(enumerate(instructions_list), total=len(instructions_list)):
         conversation = []
         # description = instructions['description']
