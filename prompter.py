@@ -16,7 +16,8 @@ def sft_sample_to_ids(conversations: Dict[str, Any], tokenizer: PreTrainedTokeni
             "Human: \n" + sentence["value"] + "\n\nAssistant: \n"
             if sentence_from == "human"
             else sentence["value"]
-        )
+        )  # https://github.com/LianjiaTech/BELLE/issues/337
+        # conversation += sentence_value
         sentence_ids = tokenizer.encode(
             sentence_value, add_special_tokens=False
         )  # do not add bos_token_id
@@ -83,6 +84,60 @@ def generate_and_tokenize_prompt(
     return tokenized_full_prompt
 
 
+def generate_and_tokenize_prompt_with_graph(
+    model_max_length: int,
+    tokenizer: PreTrainedTokenizer,
+    data_point: Dict[str, Any],
+    fix_length=False,
+    padding_side="right",
+    train_graph_emb=None
+):
+    conversations = data_point["conversations"]
+    graph_emb = train_graph_emb[data_point['graph_id']].unsqueeze(0)
+    input_ids, labels = sft_sample_to_ids(conversations, tokenizer)
+
+    input_ids = input_ids[:model_max_length]
+    labels = labels[:model_max_length]
+
+    if all(x == IGNORE_INDEX for x in labels):
+        labels[18:24] = input_ids[
+            18:24
+        ]  # labels can not have all values being -100. 18 and 24 are just random numbers
+    attention_mask = [1] * len(input_ids)
+
+    if fix_length and model_max_length > len(input_ids):
+        if padding_side == "left":
+            input_ids = [tokenizer.pad_token_id] * (
+                model_max_length - len(input_ids)
+            ) + input_ids
+            labels = [tokenizer.pad_token_id] * (
+                model_max_length - len(labels)
+            ) + labels
+            attention_mask = [0] * (
+                model_max_length - len(attention_mask)
+            ) + attention_mask
+        else:
+            input_ids = input_ids + [tokenizer.pad_token_id] * (
+                model_max_length - len(input_ids)
+            )
+            labels = labels + [tokenizer.pad_token_id] * (
+                model_max_length - len(labels)
+            )
+            attention_mask = attention_mask + [0] * (
+                model_max_length - len(attention_mask)
+            )
+
+    tokenized_full_prompt = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "labels": labels,
+        "graph": data_point['graph_id'],
+        "graph_emb": graph_emb
+    }
+    return tokenized_full_prompt
+
+
+
 def batch_grouped_sft_generate(
     model_max_length: int,
     tokenizer: PreTrainedTokenizer,
@@ -133,6 +188,34 @@ def batch_grouped_pretrain_generate(
     ]
     return {"input_ids": result, "labels": result.copy()}
 
+
+def exam_generate(model_max_length: int, tokenizer: PreTrainedTokenizer, data_point):
+    template = "Human: \n{human}\n\nAssistant: \n"
+    input_str = template.format(
+        human=f'回答下面的{data_point["type"]}题，用json返回答案，包括原因和答案，如{{"reason":..., "answer":...}}\n{data_point["question"]}\n选项：{" ".join(data_point["candidates"])}'
+    )
+    input_ids = tokenizer.encode(input_str, add_special_tokens=False)
+    labels = [IGNORE_INDEX] * len(input_ids)
+    bot_ids = tokenizer.encode(
+        json.dumps(
+            {"reason": data_point["reason"], "answer": data_point["answer"]},
+            ensure_ascii=False,
+        ),
+        add_special_tokens=False,
+    )
+    input_ids += bot_ids
+    labels += bot_ids
+
+    input_ids += [tokenizer.eos_token_id]
+    labels += [tokenizer.eos_token_id]
+
+    input_ids = input_ids[: model_max_length - 1]
+    labels = labels[: model_max_length - 1]
+    return {
+        "input_ids": input_ids,
+        "attention_mask": [1] * len(input_ids),
+        "labels": labels,
+    }
 
 def inference_generate(
     model_max_length: int,
