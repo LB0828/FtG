@@ -1,4 +1,4 @@
-# <center> Filter-then-Generate: : Large Language Models with Structure-Text Adapter for Knowledge Graph Completion</center>
+# <center> Filter-then-Generate: Large Language Models with Structure-Text Adapter for Knowledge Graph Completion</center>
 
 
 <center>Anonymous ACL submission</center>
